@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duck Ninja - Horror Edition</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #050505;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background: #0f1016;
+            border: 4px solid #8b0000;
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(139, 0, 0, 0.6);
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            letter-spacing: 1px;
+        }
+        
+        /* SCARY GAME OVER SCREEN STYLES */
+        #game-over-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(139, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.95) 80%);
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        #scary-title {
+            font-size: 64px;
+            color: #ff0000;
+            margin: 0 0 5px 0;
+            text-transform: uppercase;
+            font-weight: 900;
+            letter-spacing: 6px;
+            text-shadow: 0 0 20px #ff0000, 0 0 40px #8b0000, 3px 3px 0px #000;
+            animation: pulse-glitch 1.5s infinite alternate;
+        }
+
+        #scary-subtitle {
+            font-size: 18px;
+            color: #888;
+            font-style: italic;
+            margin-bottom: 25px;
+            text-shadow: 1px 1px 2px #000;
+            letter-spacing: 2px;
+        }
+
+        #final-score-container {
+            font-size: 28px;
+            margin-bottom: 30px;
+            color: #eee;
+            text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+        }
+
+        #final-score {
+            color: #ff3333;
+            font-weight: bold;
+            font-size: 36px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn {
+            background: #4a0000;
+            color: #ffcccc;
+            border: 2px solid #ff0000;
+            padding: 12px 28px;
+            font-size: 18px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.3);
+        }
+
+        .btn:hover {
+            background: #ff0000;
+            color: #000;
+            box-shadow: 0 0 20px #ff0000;
+            transform: scale(1.08);
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Blood Drip Vignette Effect */
+        #blood-overlay {
+            pointer-events: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            box-shadow: inset 0 0 100px rgba(255, 0, 0, 0.8);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        @keyframes pulse-glitch {
+            0% { transform: scale(1); text-shadow: 0 0 20px #ff0000; }
+            50% { transform: scale(1.03) skewX(-2deg); text-shadow: -3px 0 30px #ff0000, 3px 0 10px #ffffff; }
+            100% { transform: scale(0.98) skewX(2deg); text-shadow: 0 0 20px #8b0000; }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui">SCORE: <span id="score">0</span></div>
+    <div id="blood-overlay"></div>
+    
+    <!-- SCARY GAME OVER SCREEN -->
+    <div id="game-over-screen">
+        <h1 id="scary-title">YOU DIED</h1>
+        <div id="scary-subtitle">THE DUCKS CLAIMED YOUR SOUL...</div>
+        <div id="final-score-container">FINAL SCORE: <span id="final-score">0</span></div>
+        <div class="btn-group">
+            <button class="btn" onclick="restartGame()">RETRY</button>
+            <button class="btn" onclick="shareScore()">SHARE SLAUGHTER</button>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const finalScoreEl = document.getElementById('final-score');
+const gameOverScreen = document.getElementById('game-over-screen');
+const bloodOverlay = document.getElementById('blood-overlay');
+
+canvas.width = 800;
+canvas.height = 600;
+
+let score = 0;
+let gameOver = false;
+let ducks = [];
+let particles = [];
+let splatters = [];
+let bladeTrail = [];
+let mousePos = { x: 0, y: 0 };
+let spawnTimer = 0;
+
+// --- DUCK OBJECT ---
+class Duck {
+    constructor() {
+        this.radius = 30;
+        this.x = Math.random() * (canvas.width - 100) + 50;
+        this.y = canvas.height + this.radius;
+        
+        const targetX = canvas.width / 2 + (Math.random() * 200 - 100);
+        this.vx = (targetX - this.x) / 50;
+        this.vy = -(Math.random() * 4 + 13);
+        this.gravity = 0.3;
+        
+        // 20% chance to spawn a Bomb Duck
+        this.isBomb = Math.random() < 0.2;
+        this.rotation = 0;
+        this.vRot = (Math.random() - 0.5) * 0.1;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += this.gravity;
+        this.rotation += this.vRot;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+
+        if (this.isBomb) {
+            // Demonic Bomb Duck (Black Body + Red Glowing Eyes)
+            ctx.fillStyle = '#0a0a0a';
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Glowing Red Eyes
+            ctx.fillStyle = '#ff0000';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(-8, -8, 4, 0, Math.PI * 2);
+            ctx.arc(8, -8, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Sharp Beak
+            ctx.fillStyle = '#8b0000';
+            ctx.beginPath();
+            ctx.ellipse(15, 2, 12, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            // Regular Duck
+            ctx.fillStyle = '#fbc531';
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Eye
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(-8, -8, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Beak
+            ctx.fillStyle = '#e1b12c';
+            ctx.beginPath();
+            ctx.ellipse(15, 2, 12, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
+// --- PARTICLES & BLOOD SPLATTERS ---
+class Particle {
+    constructor(x, y, color, speedMultiplier = 1) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.radius = Math.random() * 6 + 2;
+        this.vx = (Math.random() - 0.5) * 14 * speedMultiplier;
+        this.vy = (Math.random() - 0.5) * 14 * speedMultiplier;
+        this.gravity = 0.25;
+        this.alpha = 1;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += this.gravity;
+        this.alpha -= 0.015;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, this.alpha);
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+class Splatter {
+    constructor(x, y, color = '#660000') {
+        this.x = x;
+        this.y = y;
+        this.radius = Math.random() * 30 + 15;
+        this.color = color;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+// --- INPUT LISTENERS ---
+window.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+    };
+    bladeTrail.push({ ...mousePos, time: Date.now() });
+});
+
+// --- SLICE INTERSECTION DETECTION ---
+function checkSlices() {
+    if (bladeTrail.length < 2) return;
+
+    const p1 = bladeTrail[bladeTrail.length - 2];
+    const p2 = bladeTrail[bladeTrail.length - 1];
+
+    for (let i = ducks.length - 1; i >= 0; i--) {
+        const d = ducks[i];
+        const dist = distToSegment(d, p1, p2);
+
+        if (dist < d.radius) {
+            if (d.isBomb) {
+                triggerExplosion(d.x, d.y);
+                endGame();
+            } else {
+                sliceDuck(d.x, d.y);
+                ducks.splice(i, 1);
+                score += 10;
+                scoreEl.innerText = score;
+            }
+        }
+    }
+}
+
+function sliceDuck(x, y) {
+    splatters.push(new Splatter(x, y, '#8b0000'));
+    if (splatters.length > 40) splatters.shift();
+
+    for (let i = 0; i < 30; i++) {
+        particles.push(new Particle(x, y, '#b30000'));
+    }
+}
+
+function triggerExplosion(x, y) {
+    // Massive Blood Explosion
+    for (let i = 0; i < 25; i++) {
+        splatters.push(new Splatter(
+            x + (Math.random() - 0.5) * 300, 
+            y + (Math.random() - 0.5) * 300, 
+            '#330000'
+        ));
+    }
+    for (let i = 0; i < 200; i++) {
+        particles.push(new Particle(x, y, '#ff0000', 3));
+    }
+}
+
+function distToSegment(p, v, w) {
+    const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
+    if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+}
+
+// --- GAME LOOP ---
+function animate() {
+    if (!gameOver) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw persistent background blood
+        splatters.forEach(s => s.draw());
+
+        // Spawn Ducks
+        spawnTimer++;
+        if (spawnTimer % 50 === 0) {
+            ducks.push(new Duck());
+        }
+
+        // Update & Draw Ducks
+        for (let i = ducks.length - 1; i >= 0; i--) {
+            ducks[i].update();
+            ducks[i].draw();
+            if (ducks[i].y > canvas.height + 50 && ducks[i].vy > 0) {
+                ducks.splice(i, 1);
+            }
+        }
+
+        // Update & Draw Blood Particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            particles[i].update();
+            particles[i].draw();
+            if (particles[i].alpha <= 0) {
+                particles.splice(i, 1);
+            }
+        }
+
+        // Blade Trail
+        const now = Date.now();
+        bladeTrail = bladeTrail.filter(p => now - p.time < 150);
+
+        if (bladeTrail.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(bladeTrail[0].x, bladeTrail[0].y);
+            for (let i = 1; i < bladeTrail.length; i++) {
+                ctx.lineTo(bladeTrail[i].x, bladeTrail[i].y);
+            }
+            ctx.strokeStyle = '#ff0055';
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#ff0000';
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        checkSlices();
+        requestAnimationFrame(animate);
+    }
+}
+
+// --- GAME OVER & RESTART ---
+function endGame() {
+    gameOver = true;
+    bloodOverlay.style.opacity = '1';
+    finalScoreEl.innerText = score;
+
+    // Delayed horror popup reveal for dramatic impact
+    setTimeout(() => {
+        gameOverScreen.style.display = 'flex';
+    }, 300);
+}
+
+function restartGame() {
+    gameOver = false;
+    score = 0;
+    scoreEl.innerText = score;
+    ducks = [];
+    particles = [];
+    splatters = [];
+    bladeTrail = [];
+    bloodOverlay.style.opacity = '0';
+    gameOverScreen.style.display = 'none';
+    animate();
+}
+
+function shareScore() {
+    const shareText = `💀 I survived long enough to score ${score} points in Duck Ninja! Try to survive...`;
+    
+    if (navigator.share) {
+        navigator.share({
+            title: 'Duck Ninja - Horror Edition High Score',
+            text: shareText,
+            url: window.location.href
+        }).catch(() => {});
+    } else {
+        navigator.clipboard.writeText(shareText);
+        alert('Your score has been copied to clipboard! Share if you dare:\n\n' + shareText);
+    }
+}
+
+// Start Game
+animate();
+</script>
+
+</body>
+</html>
