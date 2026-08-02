@@ -8,6 +8,7 @@
         * {
             box-sizing: border-box;
             user-select: none;
+            touch-action: none;
         }
         body {
             margin: 0;
@@ -56,7 +57,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: radial-gradient(circle, rgba(139, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.95) 80%);
+            background: radial-gradient(circle, rgba(139, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.95) 80%);
             flex-direction: column;
             justify-content: center;
             align-items: center;
@@ -128,7 +129,6 @@
             transform: scale(0.95);
         }
 
-        /* Blood Drip Vignette Effect */
         #blood-overlay {
             pointer-events: none;
             position: absolute;
@@ -159,7 +159,6 @@
     <div id="ui">SCORE: <span id="score">0</span></div>
     <div id="blood-overlay"></div>
     
-    <!-- SCARY GAME OVER SCREEN -->
     <div id="game-over-screen">
         <h1 id="scary-title">YOU DIED</h1>
         <div id="scary-subtitle">THE DUCKS CLAIMED YOUR SOUL...</div>
@@ -190,13 +189,12 @@ let ducks = [];
 let particles = [];
 let splatters = [];
 let bladeTrail = [];
-let mousePos = { x: 0, y: 0 };
 let spawnTimer = 0;
 
 // --- DUCK OBJECT ---
 class Duck {
     constructor() {
-        this.radius = 30;
+        this.radius = 35; // Increased hit box size slightly for smoother slicing
         this.x = Math.random() * (canvas.width - 100) + 50;
         this.y = canvas.height + this.radius;
         
@@ -205,7 +203,6 @@ class Duck {
         this.vy = -(Math.random() * 4 + 13);
         this.gravity = 0.3;
         
-        // 20% chance to spawn a Bomb Duck
         this.isBomb = Math.random() < 0.2;
         this.rotation = 0;
         this.vRot = (Math.random() - 0.5) * 0.1;
@@ -224,7 +221,6 @@ class Duck {
         ctx.rotate(this.rotation);
 
         if (this.isBomb) {
-            // Demonic Bomb Duck (Black Body + Red Glowing Eyes)
             ctx.fillStyle = '#0a0a0a';
             ctx.beginPath();
             ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
@@ -233,7 +229,6 @@ class Duck {
             ctx.lineWidth = 2;
             ctx.stroke();
 
-            // Glowing Red Eyes
             ctx.fillStyle = '#ff0000';
             ctx.shadowBlur = 10;
             ctx.shadowColor = '#ff0000';
@@ -243,25 +238,21 @@ class Duck {
             ctx.fill();
             ctx.shadowBlur = 0;
 
-            // Sharp Beak
             ctx.fillStyle = '#8b0000';
             ctx.beginPath();
             ctx.ellipse(15, 2, 12, 6, 0, 0, Math.PI * 2);
             ctx.fill();
         } else {
-            // Regular Duck
             ctx.fillStyle = '#fbc531';
             ctx.beginPath();
             ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
             ctx.fill();
 
-            // Eye
             ctx.fillStyle = '#000';
             ctx.beginPath();
             ctx.arc(-8, -8, 4, 0, Math.PI * 2);
             ctx.fill();
 
-            // Beak
             ctx.fillStyle = '#e1b12c';
             ctx.beginPath();
             ctx.ellipse(15, 2, 12, 6, 0, 0, Math.PI * 2);
@@ -321,36 +312,54 @@ class Splatter {
     }
 }
 
-// --- INPUT LISTENERS ---
-window.addEventListener('mousemove', (e) => {
+// --- INPUT & SWIPE TRACKING ---
+function addPointerPos(e) {
     const rect = canvas.getBoundingClientRect();
-    mousePos = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-    };
-    bladeTrail.push({ ...mousePos, time: Date.now() });
-});
+    let clientX, clientY;
+    
+    if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+    } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+    }
 
-// --- SLICE INTERSECTION DETECTION ---
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    bladeTrail.push({ x, y, time: Date.now() });
+}
+
+window.addEventListener('mousemove', addPointerPos);
+window.addEventListener('touchmove', (e) => {
+    addPointerPos(e);
+    e.preventDefault();
+}, { passive: false });
+
+// --- FIXED SLICE DETECTION ---
 function checkSlices() {
     if (bladeTrail.length < 2) return;
 
-    const p1 = bladeTrail[bladeTrail.length - 2];
-    const p2 = bladeTrail[bladeTrail.length - 1];
+    // Check all line segments created in recent trail
+    for (let j = 1; j < bladeTrail.length; j++) {
+        const p1 = bladeTrail[j - 1];
+        const p2 = bladeTrail[j];
 
-    for (let i = ducks.length - 1; i >= 0; i--) {
-        const d = ducks[i];
-        const dist = distToSegment(d, p1, p2);
+        for (let i = ducks.length - 1; i >= 0; i--) {
+            const d = ducks[i];
+            const dist = distToSegment(d, p1, p2);
 
-        if (dist < d.radius) {
-            if (d.isBomb) {
-                triggerExplosion(d.x, d.y);
-                endGame();
-            } else {
-                sliceDuck(d.x, d.y);
-                ducks.splice(i, 1);
-                score += 10;
-                scoreEl.innerText = score;
+            if (dist < d.radius) {
+                if (d.isBomb) {
+                    triggerExplosion(d.x, d.y);
+                    endGame();
+                } else {
+                    sliceDuck(d.x, d.y);
+                    ducks.splice(i, 1);
+                    score += 10;
+                    scoreEl.innerText = score;
+                }
             }
         }
     }
@@ -366,7 +375,6 @@ function sliceDuck(x, y) {
 }
 
 function triggerExplosion(x, y) {
-    // Massive Blood Explosion
     for (let i = 0; i < 25; i++) {
         splatters.push(new Splatter(
             x + (Math.random() - 0.5) * 300, 
@@ -392,7 +400,7 @@ function animate() {
     if (!gameOver) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Draw persistent background blood
+        // Persistent background blood
         splatters.forEach(s => s.draw());
 
         // Spawn Ducks
@@ -419,9 +427,9 @@ function animate() {
             }
         }
 
-        // Blade Trail
+        // Blade Trail Lifetime (Keep 180ms worth of drag)
         const now = Date.now();
-        bladeTrail = bladeTrail.filter(p => now - p.time < 150);
+        bladeTrail = bladeTrail.filter(p => now - p.time < 180);
 
         if (bladeTrail.length > 1) {
             ctx.beginPath();
@@ -432,6 +440,7 @@ function animate() {
             ctx.strokeStyle = '#ff0055';
             ctx.lineWidth = 6;
             ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             ctx.shadowBlur = 15;
             ctx.shadowColor = '#ff0000';
             ctx.stroke();
@@ -449,7 +458,6 @@ function endGame() {
     bloodOverlay.style.opacity = '1';
     finalScoreEl.innerText = score;
 
-    // Delayed horror popup reveal for dramatic impact
     setTimeout(() => {
         gameOverScreen.style.display = 'flex';
     }, 300);
